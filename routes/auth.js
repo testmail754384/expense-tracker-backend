@@ -5,7 +5,9 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const mongoose = require('mongoose');
+
+
+
 
 
 const router = express.Router();
@@ -13,7 +15,6 @@ const router = express.Router();
 // --- 1. Mongoose User Model ---
 // Using the separate User model file
 const User = require('../models/User');
-const Transaction = require("../models/Transaction.js");
 
 
 const {forgotPassword, resetPassword, resendOtp}  = require('./forgotResetPassword.js') // imorted the functions to verify and resend otp
@@ -265,7 +266,7 @@ router.post('/login', async (req, res) => {
 
 // @desc    Initiate Google OAuth flow
 // @route   GET /api/auth/google
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email']}));
 
 
 // @desc    Google OAuth callback
@@ -281,29 +282,10 @@ router.get(
     
     // Redirect to frontend with the token
     res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${token}`);
+    console.log(res)
   }
 );
 
-
-// Routes for Transaction
-// Get all transactions
-router.get("/", async (req, res) => {
-  const transactions = await Transaction.find().sort({ date: -1 });
-  res.json(transactions);
-});
-
-// Create transaction
-router.post("/", async (req, res) => {
-  const tx = new Transaction(req.body);
-  await tx.save();
-  res.json(tx);
-});
-
-// Delete transaction
-router.delete("/:id", async (req, res) => {
-  await Transaction.findByIdAndDelete(req.params.id);
-  res.json({ success: true });
-});
 
 
 

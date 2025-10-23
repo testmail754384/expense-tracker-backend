@@ -14,6 +14,11 @@ require('events').EventEmitter.defaultMaxListeners = 20; // increase to 20
 
 dotenv.config();
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://expense-tracker-frontend-8kdp.vercel.app"
+];
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
   max: 100, // limit each IP
@@ -29,7 +34,23 @@ const app = express();
 app.use(express.json({ limit: "5mb" }));
 
 // Middleware
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+
+if (process.env.NODE_ENV !== "production") {
+  console.log("Allowed origins:", allowedOrigins);
+}
+
+
 app.use(helmet());
 app.use(
   helmet.contentSecurityPolicy({
