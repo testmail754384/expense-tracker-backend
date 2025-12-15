@@ -1,115 +1,142 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const { sendOtpEmail } = require("../utils/sendOtp");
+const rateLimit = require("express-rate-limit");
 
-// ✅ Step 1: Forgot Password — generate and send OTP (hashed)
-exports.forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: "Email is required." });
+/* ---------- RATE LIMITER ---------- */
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { message: "Too many OTP requests. Try again later." },
+});
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found." });
+/* =================================================
+   STEP 1: FORGOT PASSWORD
+================================================= */
+exports.forgotPassword = [
+  
+  async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email)
+        return res.status(400).json({ message: "Email is required." });
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const user = await User.findOne({ email });
+      if (!user)
+        return res.status(404).json({ message: "User not found." });
 
-    // Hash OTP before saving (improves security)
-    const hashedOtp = await bcrypt.hash(otp, 10);
-    user.resetOtp = hashedOtp;
+      // ❌ Google users cannot reset password
+      if (!user.password) {
+        return res.status(400).json({
+          message: "This account uses Google login. Password reset not allowed.",
+        });
+      }
 
-    // 🔴 WAS: user.otpExpiry
-    // ✅ USE SCHEMA FIELD NAME: otpExpires (and store as Date)
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    await user.save();
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      user.resetOtp = await bcrypt.hash(otp, 10);
+      user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Use new email system with "reset" template
-    await sendOtpEmail({
-      to: email,
-      name: user.name,
-      otp,
-      type: "reset",
-    });
+      await user.save();
 
-    res.json({ message: "OTP sent to your email." });
-  } catch (err) {
-    console.error("❌ Error in forgotPassword:", err);
-    res.status(500).json({ message: "Error generating OTP." });
-  }
-};
+      await sendOtpEmail({
+        to: email,
+        name: user.name,
+        otp,
+        type: "reset",
+      });
 
-// ✅ Step 2: Reset Password — verify OTP (hashed) and update password
+      res.json({
+        success: true,
+        message: "OTP sent to your email.",
+        expiresIn: "10 minutes",
+      });
+    } catch (err) {
+      console.error("❌ Forgot Password Error:", err);
+      res.status(500).json({ message: "Failed to send OTP." });
+    }
+  },
+];
+
+/* =================================================
+   STEP 2: RESET PASSWORD
+================================================= */
 exports.resetPassword = async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
+
     if (!email || !otp || !newPassword)
       return res.status(400).json({ message: "All fields are required." });
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found." });
+    if (!user)
+      return res.status(404).json({ message: "User not found." });
 
-    // 🔴 WAS: user.otpExpiry
-    // ✅ USE: user.otpExpires and compare as Date
-    if (!user.otpExpires || user.otpExpires.getTime() < Date.now()) {
+    if (!user.otpExpires || user.otpExpires < Date.now()) {
       return res
         .status(400)
         .json({ message: "OTP expired. Please request a new one." });
     }
 
-    // Verify hashed OTP
-    if (!user.resetOtp) {
+    if (!user.resetOtp)
       return res.status(400).json({ message: "Invalid OTP." });
-    }
 
-    const isValidOtp = await bcrypt.compare(otp, user.resetOtp);
-    if (!isValidOtp) {
+    const isValid = await bcrypt.compare(otp, user.resetOtp);
+    if (!isValid)
       return res.status(400).json({ message: "Invalid OTP." });
-    }
 
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
-
-    // Clear OTP fields
+    user.password = await bcrypt.hash(newPassword, 10);
     user.resetOtp = undefined;
-    user.otpExpires = undefined; // clear same field
+    user.otpExpires = undefined;
+
     await user.save();
 
-    res.json({ message: "Password reset successfully!" });
-  } catch (err) {
-    console.error("❌ Error in resetPassword:", err);
-    res.status(500).json({ message: "Error resetting password." });
-  }
-};
+    console.log(`🔐 Password reset successful for ${email}`);
 
-// ✅ Step 3: Resend OTP (hashed again + reset template)
-exports.resendOtp = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: "Email is required." });
-
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found." });
-
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const hashedOtp = await bcrypt.hash(newOtp, 10);
-
-    user.resetOtp = hashedOtp;
-
-    // 🔴 WAS: user.otpExpiry
-    // ✅ USE: otpExpires
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
-
-    await sendOtpEmail({
-      to: email,
-      name: user.name,
-      otp: newOtp,
-      type: "reset",
+    res.json({
+      success: true,
+      message: "Password reset successfully.",
     });
-
-    res.json({ message: "New OTP sent to your email." });
   } catch (err) {
-    console.error("❌ Error in resendOtp:", err);
-    res.status(500).json({ message: "Error resending OTP." });
+    console.error("❌ Reset Password Error:", err);
+    res.status(500).json({ message: "Password reset failed." });
   }
 };
+
+/* =================================================
+   STEP 3: RESEND OTP
+================================================= */
+exports.resendOtp = [
+  
+  async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email)
+        return res.status(400).json({ message: "Email is required." });
+
+      const user = await User.findOne({ email });
+      if (!user)
+        return res.status(404).json({ message: "User not found." });
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      user.resetOtp = await bcrypt.hash(otp, 10);
+      user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+      await user.save();
+
+      await sendOtpEmail({
+        to: email,
+        name: user.name,
+        otp,
+        type: "reset",
+      });
+
+      res.json({
+        success: true,
+        message: "New OTP sent to your email.",
+      });
+    } catch (err) {
+      console.error("❌ Resend OTP Error:", err);
+      res.status(500).json({ message: "Failed to resend OTP." });
+    }
+  },
+];

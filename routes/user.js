@@ -5,6 +5,7 @@ const User = require("../models/User");
 const authMiddleware = require("../middleware/auth");
 const bcrypt = require("bcryptjs");
 const Transaction = require("../models/Transaction");
+const ExcelJS = require("exceljs");
 
 
 // --- Get current user ---
@@ -91,6 +92,57 @@ router.get("/export", authMiddleware, async (req, res) => {
     }
   }
 });
+
+// Export transactions as xls format
+
+router.get("/export-excel", authMiddleware, async (req, res) => {
+  try {
+    const transactions = await Transaction.find({ userId: req.userId });
+
+    if (!transactions.length) {
+      return res.status(404).json({ message: "No transactions found" });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Transactions");
+
+    // Define columns
+    worksheet.columns = [
+      { header: "Date", key: "date", width: 15 },
+      { header: "Type", key: "type", width: 10 },
+      { header: "Category", key: "category", width: 15 },
+      { header: "Amount", key: "amount", width: 12 },
+      { header: "Description", key: "description", width: 25 },
+    ];
+
+    // Add rows
+    transactions.forEach(tx => {
+      worksheet.addRow({
+        date: tx.date.toISOString().split("T")[0],
+        type: tx.type,
+        category: tx.category,
+        amount: tx.amount,
+        description: tx.description || "",
+      });
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=Expense_Report.xlsx"
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Excel export failed" });
+  }
+});
+
 
 
 // --- Delete all transactions for logged-in user ---

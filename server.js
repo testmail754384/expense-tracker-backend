@@ -8,6 +8,9 @@ const MongoStore = require('connect-mongo');
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
+const aiRoutes = require("./routes/ai");
+
+
 require('events').EventEmitter.defaultMaxListeners = 20; // increase to 20
 
 
@@ -16,7 +19,8 @@ dotenv.config();
 
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://expense-tracker-frontend-8kdp.vercel.app"
+  "https://expense-tracker-frontend-8kdp.vercel.app",
+  "https://1881ae79-be71-40ac-9a16-4d3ef60ae0ae-00-31he4hdiy5v9d.sisko.replit.dev/"
 ];
 
 const limiter = rateLimit({
@@ -94,7 +98,8 @@ app.use(passport.session());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use("/api/transactions", transactionRoutes);
-app.use("/api/user",userUpdate)
+app.use("/api/user",userUpdate);
+app.use("/api/ai", aiRoutes);
 
 
 mongoose.set('strictQuery', true);

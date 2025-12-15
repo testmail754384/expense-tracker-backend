@@ -1,17 +1,16 @@
 // utils/sendOtp.js
-const nodemailer = require("nodemailer");
-const EmailLog = require("../models/EmailLog"); // we'll create this model below
+const { Resend } = require("resend");
+const EmailLog = require("../models/EmailLog");
 
-/**
- * Email transporter configuration
- */
-const transporter = nodemailer.createTransport({
-  service: "gmail", // or custom SMTP
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+if (!process.env.RESEND_API_KEY) {
+  throw new Error("❌ RESEND_API_KEY is missing in environment variables");
+}
+
+if (!process.env.EMAIL_FROM) {
+  throw new Error("❌ EMAIL_FROM is missing in environment variables");
+}
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Returns OTP email HTML for different flows
@@ -19,6 +18,8 @@ const transporter = nodemailer.createTransport({
  */
 const getOtpEmailTemplate = ({ type, name, otp }) => {
   const safeName = name || "there";
+
+  /* 🔒 OTP DESIGN — UNTOUCHED */
   const baseStyles = `
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #f3f4f6;
@@ -95,7 +96,7 @@ const getOtpEmailTemplate = ({ type, name, otp }) => {
     `;
   }
 
-  // default: reset password template
+  /* 🔒 RESET PASSWORD TEMPLATE — UNTOUCHED */
   return `
     <div style="${baseStyles}">
       <div style="${cardStyles}">
@@ -148,49 +149,38 @@ const getOtpEmailTemplate = ({ type, name, otp }) => {
 };
 
 /**
- * Sends an OTP email using Nodemailer + logs analytics
- * type: "signup" | "reset"
+ * Sends OTP email using RESEND (NO SMTP)
  */
 const sendOtpEmail = async ({ to, name, otp, type }) => {
-  const emailType = type === "signup" ? "signup" : "reset";
-
-  const html = getOtpEmailTemplate({
-    type: emailType,
-    name,
-    otp,
-  });
-
   try {
-    await transporter.sendMail({
-      from: `"ExpensePro" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+      from: process.env.EMAIL_FROM,
       to,
       subject:
-        emailType === "signup"
+        type === "signup"
           ? "Verify your email for ExpensePro"
           : "Your ExpensePro password reset code",
-      html,
+      html: getOtpEmailTemplate({ type, name, otp }),
     });
 
-    console.log(`📩 OTP email (${emailType}) sent to ${to}`);
-
-    // basic analytics logging
     await EmailLog.create({
       to,
-      type: emailType,
+      type,
       success: true,
-      error: null,
     });
+
+    console.log(`📩 OTP (${type}) sent successfully to ${to}`);
   } catch (error) {
-    console.error("❌ Error sending OTP email:", error);
+    console.error("❌ Resend Email Error:", error);
 
     await EmailLog.create({
       to,
-      type: emailType,
+      type,
       success: false,
-      error: error.message || "Unknown error",
+      error: error.message,
     });
 
-    throw new Error("Failed to send OTP email.");
+    throw new Error("Failed to send OTP email");
   }
 };
 
