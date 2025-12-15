@@ -289,7 +289,10 @@ router.get(
     );
 
     // Redirect to frontend with token
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${token}`);
+    res.redirect(
+  `${process.env.FRONTEND_URL}/google-success?token=${token}`
+);
+
   }
 );
 
